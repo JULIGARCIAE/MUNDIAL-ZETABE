@@ -532,6 +532,8 @@ function enterApp(){
   $('#tabs').innerHTML = tabs.map(t=>`<button class="tab ${t.id===currentTab?'active':''}" data-tab="${t.id}">${t.label}</button>`).join('');
   $('#tabs').onclick=e=>{ const b=e.target.closest('.tab'); if(!b)return; currentTab=b.dataset.tab; render(); };
   render();
+  // sincroniza resultados desde la fuente pública al entrar (sin bloquear la vista)
+  setTimeout(()=>autoSyncTick(), 1200);
 }
 
 function render(){
@@ -778,12 +780,13 @@ function viewAdmin(){
     }).join('');
   return `
   <div class="card">
-    <div class="section-title">Cargar resultados</div>
-    <p style="font-size:.85rem;color:var(--muted)">Ingresa el marcador final de cada partido. El ranking se recalcula al instante.</p>
-    <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
-      <button class="btn btn-outline btn-sm" id="syncBtn">⟳ Sincronizar resultados reales</button>
+    <div class="section-title">Resultados (automático)</div>
+    <p style="font-size:.85rem;color:var(--muted)">Los marcadores se llenan <b style="color:var(--green)">solos</b> desde una fuente pública (openfootball) al entrar y cada 15 minutos mientras alguien tenga la polla abierta. No tienes que cargar nada a mano.</p>
+    <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;align-items:center">
+      <button class="btn btn-outline btn-sm" id="syncBtn">⟳ Sincronizar ahora</button>
+      <span style="font-size:.78rem;color:var(--muted)">opcional, para forzar la actualización</span>
     </div>
-    <div class="note">Trae automáticamente los marcadores ya jugados desde openfootball (dominio público). Útil para no cargarlos a mano.</div>
+    <div class="note">Si un marcador llegara mal o con retraso, puedes corregirlo a mano abajo y queda fijo.</div>
   </div>
   <div class="spacer-y"></div>
   ${rows}`;
@@ -803,10 +806,14 @@ function bindAdmin(){
       catch(e){ toast('No se pudo borrar'); }
     };
   });
-  $('#syncBtn').onclick=syncResults;
+  $('#syncBtn').onclick=async ()=>{
+    const btn=$('#syncBtn'); btn.disabled=true; btn.textContent='Sincronizando…';
+    await syncFromSource(false);
+    btn.disabled=false; btn.textContent='⟳ Sincronizar ahora'; render();
+  };
 }
-async function syncResults(){
-  const btn=$('#syncBtn'); btn.disabled=true; btn.textContent='Sincronizando…';
+/* Sincroniza resultados desde la fuente pública. silent=true => sin avisos (automático). */
+async function syncFromSource(silent){
   try{
     const res=await fetch(CONFIG.RESULTS_URL,{cache:'no-store'});
     const data=await res.json();
@@ -815,15 +822,21 @@ async function syncResults(){
       const ft = om.score && om.score.ft;          // formato openfootball: score.ft = [a,b]
       if(!ft || ft.length<2) return;
       const m=FIXTURES.find(x=>x.dateRaw===om.date && x.a.en===om.team1 && x.b.en===om.team2);
-      if(m) rows.push({matchId:m.id, a:ft[0], b:ft[1]});
+      if(!m) return;
+      const cur=STATE.results[m.id];
+      if(!cur || cur.a!==ft[0] || cur.b!==ft[1]) rows.push({matchId:m.id, a:ft[0], b:ft[1]});  // solo lo que cambió
     });
     if(rows.length) await DB.setResultsBulk(rows);
-    toast(rows.length?`${rows.length} resultados sincronizados`:'Aún no hay marcadores publicados');
+    if(!silent) toast(rows.length?`${rows.length} resultados actualizados`:'Todo al día, sin marcadores nuevos');
+    return rows.length;
   }catch(e){
-    toast('No se pudo sincronizar (revisa la conexión)');
+    if(!silent) toast('No se pudo sincronizar (revisa la conexión)');
+    return 0;
   }
-  btn.disabled=false; btn.textContent='⟳ Sincronizar resultados reales';
-  render();
+}
+async function autoSyncTick(){
+  const n=await syncFromSource(true);
+  if(n>0) render();
 }
 
 /* ----------------- SEED DEMO (solo modo local, primera vez) ----------------- */
@@ -875,6 +888,8 @@ function seedDemo(){
       render();
     }
   }, 30000);
+  // auto-sincronización de resultados desde la fuente pública (cada 15 min)
+  setInterval(()=>{ if(!$('#app').classList.contains('hidden')) autoSyncTick(); }, 900000);
 })();
 </script>
 </body>
