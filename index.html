@@ -274,7 +274,7 @@ const CONFIG = {
   FINAL_MULTIPLIER: 2,           // la final vale el doble
   FINAL_STAGE: 'Final',          // etapa(s) que se duplican (puedes agregar más abajo)
   LIVE_WINDOW_H: 2.5,            // ventana para mostrar "EN JUEGO"
-  ADMIN_EMAILS: [],              // correos con acceso a "Resultados". Vacío = visible para todos (demo)
+  ADMIN_EMAILS: ['juliana.garcia@zetabe.com'],   // solo estos correos ven y editan la pestaña "Resultados". Vacío = visible para todos
   // País/equipo de los jugadores
   COUNTRIES: [
     {id:'MEXICO',    label:'México',    pt:'México',    flag:'🇲🇽'},
@@ -342,6 +342,7 @@ const I18N = {
     res_auto_desc:'Los marcadores se llenan <b style="color:var(--green)">solos</b> desde una fuente pública (openfootball) al entrar y cada 15 minutos mientras alguien tenga la página abierta. No tienes que cargar nada a mano.',
     sync_now:'⟳ Sincronizar ahora', sync_opt:'opcional, para forzar la actualización',
     res_correct_note:'Si un marcador llegara mal o con retraso, puedes corregirlo a mano abajo y queda fijo.',
+    res_public_desc:'Aquí puedes seguir los marcadores de todos los partidos. Se actualizan solos.',
     save_result:'Guardar resultado', delete:'Borrar', loaded:'Cargado',
     result_saved:'Resultado guardado', result_deleted:'Resultado borrado',
     syncing:'Sincronizando…', sync_done:'resultados actualizados', sync_uptodate:'Todo al día, sin marcadores nuevos',
@@ -393,6 +394,7 @@ const I18N = {
     res_auto_desc:'Os placares são preenchidos <b style="color:var(--green)">sozinhos</b> a partir de uma fonte pública (openfootball) ao entrar e a cada 15 minutos enquanto alguém tiver a página aberta. Você não precisa fazer nada manualmente.',
     sync_now:'⟳ Sincronizar agora', sync_opt:'opcional, para forçar a atualização',
     res_correct_note:'Se um placar vier errado ou atrasado, você pode corrigi-lo manualmente abaixo e ele fica fixo.',
+    res_public_desc:'Aqui você acompanha os placares de todos os jogos. Eles se atualizam sozinhos.',
     save_result:'Salvar resultado', delete:'Apagar', loaded:'Carregado',
     result_saved:'Resultado salvo', result_deleted:'Resultado apagado',
     syncing:'Sincronizando…', sync_done:'resultados atualizados', sync_uptodate:'Tudo em dia, sem novos placares',
@@ -686,7 +688,7 @@ function refreshAppChrome(){
     {id:'mias',label:t('tab_mine')},
     {id:'ranking',label:t('tab_rank')},
   ];
-  if(isAdmin(u.email)) tabs.push({id:'admin',label:t('tab_admin')});
+  tabs.push({id:'admin',label:t('tab_admin')});   // visible para todos; editable solo para admin
   $('#tabs').innerHTML = tabs.map(tb=>`<button class="tab ${tb.id===currentTab?'active':''}" data-tab="${tb.id}">${esc(tb.label)}</button>`).join('');
   const bs=$('#brandSub'); if(bs) bs.textContent=t('brand_sub');
 }
@@ -925,9 +927,38 @@ function viewRanking(){
 /* ----------------- VIEW: ADMIN (resultados) ----------------- */
 function viewAdmin(){
   const results=DB.results();
-  const rows=FIXTURES.filter(m=>!m.a.tbd && !m.b.tbd) // solo partidos con equipos definidos
-    .sort((a,b)=>kickoff(a)-kickoff(b))
-    .map(m=>{
+  const admin = isAdmin(DB.session());
+  const matches = FIXTURES.filter(m=>!m.a.tbd && !m.b.tbd) // solo partidos con equipos definidos
+    .sort((a,b)=>kickoff(a)-kickoff(b));
+
+  // ---- vista pública: todos VEN los resultados, sin poder editar ----
+  if(!admin){
+    const rows = matches.map(m=>{
+      const r=results[m.id]||null;
+      const st=matchStatus(m,r);
+      const mid = r
+        ? `<div class="score" style="font-size:1.15rem">${r.a} <span class="vs">–</span> ${r.b}</div>`
+        : `<div class="vs">–</div>`;
+      return `<div class="pred">
+        <div class="ptop"><span class="tag-stage">${esc(tStage(m.stage))} · ${fmtDate(m.datetime)}</span>${statusBadge(st)}</div>
+        <div class="pbody">
+          <div class="pteam"><span class="fl">${m.a.flag}</span> ${esc(tTeam(m.a.name))}</div>
+          <div style="min-width:74px;text-align:center;display:flex;justify-content:center">${mid}</div>
+          <div class="pteam r">${esc(tTeam(m.b.name))} <span class="fl">${m.b.flag}</span></div>
+        </div>
+      </div>`;
+    }).join('');
+    return `
+    <div class="card">
+      <div class="section-title">${t('tab_admin')}</div>
+      <p style="font-size:.85rem;color:var(--muted)">${t('res_public_desc')}</p>
+    </div>
+    <div class="spacer-y"></div>
+    ${rows}`;
+  }
+
+  // ---- vista admin (solo Juliana): editable ----
+  const rows = matches.map(m=>{
       const r=results[m.id]||{a:'',b:''};
       return `<div class="pred" data-mid="${m.id}">
         <div class="ptop"><span class="tag-stage">${esc(tStage(m.stage))} · ${fmtDate(m.datetime)}</span>${r.a!==''?`<span class="badge b-done">${t('loaded')}</span>`:''}</div>
@@ -958,9 +989,11 @@ function viewAdmin(){
   ${rows}`;
 }
 function bindAdmin(){
+  if(!isAdmin(DB.session())) return;   // los demás solo ven los resultados, sin editar
   $$('#view .pred').forEach(card=>{
     const mid=card.dataset.mid;
-    card.querySelector('[data-save]').onclick=async ()=>{
+    const sv=card.querySelector('[data-save]'); if(!sv) return;
+    sv.onclick=async ()=>{
       const a=card.querySelector('[data-side="a"]').value;
       const b=card.querySelector('[data-side="b"]').value;
       if(a===''||b===''){ toast(t('complete_score')); return }
@@ -972,10 +1005,11 @@ function bindAdmin(){
       catch(e){ toast(t('save_conn_fail')); }
     };
   });
-  $('#syncBtn').onclick=async ()=>{
-    const btn=$('#syncBtn'); btn.disabled=true; btn.textContent=t('syncing');
+  const sync=$('#syncBtn');
+  if(sync) sync.onclick=async ()=>{
+    sync.disabled=true; sync.textContent=t('syncing');
     await syncFromSource(false);
-    btn.disabled=false; btn.textContent=t('sync_now'); render();
+    sync.disabled=false; sync.textContent=t('sync_now'); render();
   };
 }
 /* Sincroniza resultados desde la fuente pública. silent=true => sin avisos (automático). */
