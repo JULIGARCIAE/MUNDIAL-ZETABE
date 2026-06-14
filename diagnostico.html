@@ -65,11 +65,22 @@
   try { sb = window.supabase.createClient(SB_URL, SB_KEY); }
   catch(e){ clear(out); line(out, '❌ No se pudo cargar la librería de Supabase. Revisa tu internet y recarga.', 'err'); }
 
+  async function fetchAll(tabla, cols){
+    let todas=[], desde=0; const tam=1000;
+    while(true){
+      const { data, error } = await sb.from(tabla).select(cols||'*').range(desde, desde+tam-1);
+      if(error) return { error };
+      todas = todas.concat(data||[]);
+      if(!data || data.length < tam) break;
+      desde += tam;
+    }
+    return { data: todas };
+  }
   async function testRead(){
     clear(out);
-    // usuarios
+    // usuarios (paginado)
     let u;
-    try { u = await sb.from('usuarios').select('email,nombre'); }
+    try { u = await fetchAll('usuarios','email,nombre'); }
     catch(e){ line(out, '❌ Error de conexión: ' + e.message, 'err'); return; }
     if (u.error){ line(out, '❌ No se puede leer <code>usuarios</code>: <code>'+u.error.message+'</code>', 'err'); }
     else {
@@ -78,9 +89,9 @@
       if (me) line(out, '✅ Tu correo <code>'+ME+'</code> SÍ está registrado.', 'ok');
       else line(out, '⚠️ Tu correo <code>'+ME+'</code> NO aparece en usuarios. Tendrías que inscribirte primero en la app.', 'err');
     }
-    // predicciones
+    // predicciones (paginado: trae TODAS, sin el tope de 1000)
     let p;
-    try { p = await sb.from('predicciones').select('*'); }
+    try { p = await fetchAll('predicciones'); }
     catch(e){ line(out, '❌ Error de conexión al leer predicciones: ' + e.message, 'err'); return; }
     if (p.error){
       line(out, '❌ <b>No se puede LEER</b> predicciones: <code>'+p.error.message+'</code>', 'err');

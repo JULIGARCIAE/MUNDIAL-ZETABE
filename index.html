@@ -491,15 +491,26 @@ const DB = {
   },
   async reload(){
     if(!ONLINE){ this._loadLocal(); return; }
+    // trae TODAS las filas por páginas de 1000 (Supabase limita cada lectura a 1000)
+    const fetchAll = async (tabla)=>{
+      let todas=[], desde=0; const tam=1000;
+      while(true){
+        const { data, error } = await sb.from(tabla).select('*').range(desde, desde+tam-1);
+        if(error) throw error;
+        todas = todas.concat(data||[]);
+        if(!data || data.length < tam) break;   // última página
+        desde += tam;
+      }
+      return todas;
+    };
     const [u,p,r] = await Promise.all([
-      sb.from('usuarios').select('*'),
-      sb.from('predicciones').select('*'),
-      sb.from('resultados').select('*'),
+      fetchAll('usuarios'),
+      fetchAll('predicciones'),
+      fetchAll('resultados'),
     ]);
-    if(u.error||p.error||r.error){ throw (u.error||p.error||r.error); }
-    STATE.users={};   (u.data||[]).forEach(x=>STATE.users[x.email]={email:x.email,name:x.nombre,country:x.pais});
-    STATE.preds={};   (p.data||[]).forEach(x=>{STATE.preds[x.email]=STATE.preds[x.email]||{}; STATE.preds[x.email][x.match_id]={a:x.gol_a,b:x.gol_b};});
-    STATE.results={}; (r.data||[]).forEach(x=>{STATE.results[x.match_id]={a:x.gol_a,b:x.gol_b};});
+    STATE.users={};   u.forEach(x=>STATE.users[x.email]={email:x.email,name:x.nombre,country:x.pais});
+    STATE.preds={};   p.forEach(x=>{STATE.preds[x.email]=STATE.preds[x.email]||{}; STATE.preds[x.email][x.match_id]={a:x.gol_a,b:x.gol_b};});
+    STATE.results={}; r.forEach(x=>{STATE.results[x.match_id]={a:x.gol_a,b:x.gol_b};});
   },
   _loadLocal(){
     try{STATE.users  =JSON.parse(localStorage.getItem('zb_users'))  ||{}}catch(e){STATE.users={}}
