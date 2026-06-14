@@ -8,10 +8,11 @@
   :root{--gold:#e8b43a;--bg:#0a0a0c;--card:#15151a;--border:#2a2a32;--green:#3ecf8e;--red:#ff5c5c;--muted:#9a9aa5}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:#eee;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;line-height:1.5;padding:24px}
-  .wrap{max-width:640px;margin:0 auto}
+  .wrap{max-width:660px;margin:0 auto}
   h1{font-size:1.3rem;color:var(--gold);margin:0 0 4px}
   .sub{color:var(--muted);font-size:.9rem;margin-bottom:20px}
   .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:16px}
+  .title{font-weight:700;color:#fff;margin-bottom:8px}
   button{background:var(--gold);color:#1a1306;border:0;border-radius:10px;padding:12px 18px;font-size:1rem;font-weight:700;cursor:pointer;width:100%}
   button:disabled{opacity:.5;cursor:default}
   .line{padding:8px 12px;border-radius:8px;margin:8px 0;font-size:.92rem;word-break:break-word}
@@ -27,24 +28,26 @@
 <body>
 <div class="wrap">
   <h1>Diagnóstico de predicciones</h1>
-  <div class="sub">Esta página se conecta a tu Supabase y revisa si las predicciones se guardan y se vuelven a leer bien.</div>
+  <div class="sub">Prueba directa con el usuario <code>juliana.garcia@zetabe.com</code>.</div>
 
   <div class="card">
+    <div class="title">1. Usuarios y predicciones en la base</div>
     <div id="out"><div class="line info">Conectando…</div></div>
   </div>
 
   <div class="card">
-    <button id="btnWrite" disabled>Probar guardar una predicción de prueba</button>
+    <div class="title">2. Probar guardar una predicción con tu correo</div>
+    <button id="btnWrite" disabled>Probar guardar (tu usuario)</button>
     <div id="out2"></div>
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-  // === Tus datos (los mismos de tu app) ===
   const SB_URL = 'https://sijldvljrswbgbntwhkj.supabase.co';
   const SB_KEY = 'sb_publishable_FpCSdt_ci8AIyU_XMDVFwA_Fr-FVayu';
-  const TEST_EMAIL = '__diagnostico_borrar__@test.com';
+  const ME = 'juliana.garcia@zetabe.com';
+  const TEST_MATCH = 'DIAG_TEST';
 
   const out  = document.getElementById('out');
   const out2 = document.getElementById('out2');
@@ -59,83 +62,77 @@
   function clear(t){ t.innerHTML=''; }
 
   let sb;
-  try {
-    sb = window.supabase.createClient(SB_URL, SB_KEY);
-  } catch(e){
-    clear(out);
-    line(out, '❌ No se pudo cargar la librería de Supabase. Revisa tu conexión a internet y recarga.', 'err');
-  }
+  try { sb = window.supabase.createClient(SB_URL, SB_KEY); }
+  catch(e){ clear(out); line(out, '❌ No se pudo cargar la librería de Supabase. Revisa tu internet y recarga.', 'err'); }
 
   async function testRead(){
     clear(out);
-    line(out, 'Leyendo la tabla <code>predicciones</code>…', 'info');
-    let res;
-    try { res = await sb.from('predicciones').select('*'); }
-    catch(e){ clear(out); line(out, '❌ Error de conexión: ' + e.message, 'err'); return; }
-
-    clear(out);
-    if (res.error){
-      line(out, '❌ <b>No se puede LEER</b> la tabla predicciones.', 'err');
-      line(out, 'Mensaje de Supabase: <code>' + res.error.message + '</code>' + (res.error.code?(' (código '+res.error.code+')'):''), 'err');
-      line(out, 'Causa probable: una regla de permiso (RLS) que bloquea la lectura.', 'fix');
+    // usuarios
+    let u;
+    try { u = await sb.from('usuarios').select('email,nombre'); }
+    catch(e){ line(out, '❌ Error de conexión: ' + e.message, 'err'); return; }
+    if (u.error){ line(out, '❌ No se puede leer <code>usuarios</code>: <code>'+u.error.message+'</code>', 'err'); }
+    else {
+      line(out, '✅ Usuarios registrados en la base: <b>'+u.data.length+'</b>', 'ok');
+      const me = u.data.find(x => (x.email||'').toLowerCase() === ME);
+      if (me) line(out, '✅ Tu correo <code>'+ME+'</code> SÍ está registrado.', 'ok');
+      else line(out, '⚠️ Tu correo <code>'+ME+'</code> NO aparece en usuarios. Tendrías que inscribirte primero en la app.', 'err');
+    }
+    // predicciones
+    let p;
+    try { p = await sb.from('predicciones').select('*'); }
+    catch(e){ line(out, '❌ Error de conexión al leer predicciones: ' + e.message, 'err'); return; }
+    if (p.error){
+      line(out, '❌ <b>No se puede LEER</b> predicciones: <code>'+p.error.message+'</code>', 'err');
+      line(out, 'Eso es una regla de permiso (RLS) bloqueando la lectura.', 'fix');
       return;
     }
-    line(out, '✅ Lectura OK. Hay <b>' + res.data.length + '</b> predicciones guardadas en total en la base.', 'ok');
-    if (res.data.length){
-      line(out, 'Ejemplo de una fila guardada:', 'info');
-      const ex = res.data[0];
-      line(out, '<pre>' + JSON.stringify(ex, null, 2) + '</pre>', 'info');
-      line(out, 'Columnas detectadas: <code>' + Object.keys(ex).join(', ') + '</code>', 'info');
-    } else {
-      line(out, 'La tabla está vacía (todavía nadie tiene predicciones guardadas en la base). Usa el botón de abajo para probar si se puede guardar.', 'info');
-    }
+    line(out, '✅ Predicciones guardadas en total: <b>'+p.data.length+'</b>', 'ok');
+    const mine = p.data.filter(x => (x.email||'').toLowerCase() === ME && x.match_id !== TEST_MATCH);
+    line(out, 'De esas, con tu correo: <b>'+mine.length+'</b>', mine.length ? 'ok' : 'info');
+    if (mine.length) line(out, '<pre>'+JSON.stringify(mine.slice(0,5), null, 2)+'</pre>', 'info');
   }
 
   async function testWrite(){
     clear(out2);
     btn.disabled = true;
-    const row = { email: TEST_EMAIL, match_id: 'm001', gol_a: 7, gol_b: 3, updated_at: new Date().toISOString() };
-    line(out2, 'Intentando GUARDAR una predicción de prueba (7–3)…', 'info');
+    const row = { email: ME, match_id: TEST_MATCH, gol_a: 7, gol_b: 3, updated_at: new Date().toISOString() };
+    line(out2, 'Guardando una predicción de prueba (7–3) con tu correo…', 'info');
 
     let w;
     try { w = await sb.from('predicciones').upsert(row); }
     catch(e){ line(out2, '❌ Error de conexión al guardar: ' + e.message, 'err'); btn.disabled=false; return; }
 
     if (w.error){
-      line(out2, '❌ <b>No se puede GUARDAR</b> en predicciones.', 'err');
-      line(out2, 'Mensaje de Supabase: <code>' + w.error.message + '</code>' + (w.error.code?(' (código '+w.error.code+')'):''), 'err');
-      if ((w.error.message||'').toLowerCase().includes('row-level security'))
-        line(out2, 'Causa: falta el permiso de ESCRITURA (RLS). Hay que crear la política que permite insertar.', 'fix');
-      else if ((w.error.message||'').toLowerCase().includes('on conflict') || (w.error.message||'').toLowerCase().includes('unique'))
-        line(out2, 'Causa: a la tabla le falta la "llave primaria" en (email, match_id). Por eso el guardado falla.', 'fix');
+      line(out2, '❌ <b>No se puede GUARDAR</b>: <code>'+w.error.message+'</code>'+(w.error.code?(' (código '+w.error.code+')'):''), 'err');
+      const m=(w.error.message||'').toLowerCase();
+      if (m.includes('foreign key')) line(out2, 'Causa: todavía está la regla que exige el correo en usuarios. Corre el SQL que quita <code>predicciones_email_fkey</code>.', 'fix');
+      else if (m.includes('row-level security')) line(out2, 'Causa: falta el permiso de escritura (RLS).', 'fix');
+      else if (m.includes('on conflict') || m.includes('unique')) line(out2, 'Causa: falta la llave primaria en (email, match_id).', 'fix');
       btn.disabled = false;
       return;
     }
     line(out2, '✅ Se guardó sin error.', 'ok');
 
-    // releer para confirmar que de verdad quedó
-    line(out2, 'Volviendo a leer la prueba para confirmar…', 'info');
-    const r2 = await sb.from('predicciones').select('*').eq('email', TEST_EMAIL);
+    line(out2, 'Volviendo a leerla para confirmar…', 'info');
+    const r2 = await sb.from('predicciones').select('*').eq('email', ME).eq('match_id', TEST_MATCH);
     if (r2.error){
-      line(out2, '❌ Se guardó pero NO se puede releer: <code>' + r2.error.message + '</code>', 'err');
-      line(out2, 'Causa: una regla (RLS) deja escribir pero bloquea la lectura. Esto explica que las predicciones "desaparezcan" al recargar.', 'fix');
+      line(out2, '❌ Se guardó pero NO se puede releer: <code>'+r2.error.message+'</code>', 'err');
+      line(out2, 'Es una regla (RLS) que deja escribir pero bloquea leer. Por eso "desaparecen" al recargar.', 'fix');
     } else if (r2.data.length){
-      line(out2, '✅ <b>Relectura OK</b>: la prueba se guardó y se puede volver a leer.', 'ok');
-      line(out2, '➡️ Tu base de datos guarda y lee bien. Si en la app igual se pierden, el problema es otro (no la base). Avísame y seguimos por ahí.', 'fix');
+      line(out2, '✅ <b>Perfecto:</b> se guardó y se vuelve a leer bien.', 'ok');
+      line(out2, '➡️ Tu base guarda y lee correctamente. Si en la app igual no aparecen en "Mis predicciones", el problema ya no es la base — avísame y reviso el código.', 'fix');
     } else {
-      line(out2, '⚠️ <b>Aquí está el problema</b>: se guardó sin error, pero al volver a leer NO aparece.', 'err');
-      line(out2, 'Esto es una regla de permiso (RLS) que permite escribir pero NO devuelve las filas al leer. Por eso las predicciones se pierden al recargar.', 'fix');
+      line(out2, '⚠️ <b>Aquí está el problema:</b> guardó sin error pero al releer NO aparece.', 'err');
+      line(out2, 'Regla (RLS) que permite escribir pero no leer. Eso explica que se pierdan al recargar.', 'fix');
     }
-
-    // limpiar la fila de prueba
-    try { await sb.from('predicciones').delete().eq('email', TEST_EMAIL); } catch(e){}
+    try { await sb.from('predicciones').delete().eq('email', ME).eq('match_id', TEST_MATCH); } catch(e){}
     btn.disabled = false;
   }
 
   if (sb){
     btn.disabled = false;
     btn.onclick = testWrite;
-    window.addEventListener('load', testRead);
     testRead();
   }
 </script>
